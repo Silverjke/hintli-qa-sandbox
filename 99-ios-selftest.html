@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hintli — тест на реальном телефоне</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin:0; font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:#111; background:#fff; }
+  header { padding:16px 20px; background:#111; color:#fff; font-weight:700; font-size:14px; }
+  main { padding:20px; max-width:640px; }
+  h1 { font-size:22px; margin:.2em 0 .6em; }
+  .step { padding:10px 12px; border:1px solid #e6e6e6; border-radius:10px; margin:8px 0; font-size:14px; }
+  .step b { display:block; font-size:13px; color:#666; font-weight:600; }
+  .ok { border-color:#bfe3c6; background:#f3fbf5; }
+  .bad { border-color:#f0c2c2; background:#fdf4f4; }
+  .price { margin:28px 0; padding:16px; border:1px solid #eee; border-radius:12px; }
+  .filler { color:#555; }
+  #done { display:none; margin:24px 0; padding:16px; border-radius:12px; background:#0d9488; color:#fff; font-weight:700; }
+</style>
+</head>
+<body>
+<header>HINTLI QA · тест на реальном телефоне · site-id: glow-2</header>
+<main>
+  <h1>Идёт проверка виджета</h1>
+  <p id="lead">Ничего нажимать не нужно. Держи страницу открытой примерно минуту — она сама всё проверит и отправит результат.</p>
+  <div id="steps"></div>
+  <div id="done">Готово. Результат отправлен, можно закрывать вкладку.</div>
+
+  <div class="price"><strong>Pricing</strong><p>Projects start at $12,000/mo.</p></div>
+  <p class="filler" id="filler"></p>
+</main>
+
+<script src="https://hintli.ai/embed.js" data-site-id="glow-2" async></script>
+<script>
+(function () {
+  var TARGET = new URLSearchParams(location.search).get('to') || '';
+  var out = { startedAt: new Date().toISOString(), ua: navigator.userAgent, steps: [] };
+  var stepsEl = document.getElementById('steps');
+  document.getElementById('filler').textContent =
+    'Текст для высоты страницы. '.repeat(60);
+
+  function log(name, ok, data) {
+    out.steps.push({ name: name, ok: ok, data: data });
+    var d = document.createElement('div');
+    d.className = 'step ' + (ok ? 'ok' : 'bad');
+    d.innerHTML = '<b>' + name + '</b>' + (ok ? 'ок' : 'проблема') + ' — ' +
+      String(JSON.stringify(data)).slice(0, 200);
+    stepsEl.appendChild(d);
+  }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function shadow() {
+    var root = document.querySelector('#sitepilot-root');
+    return root && root.shadowRoot;
+  }
+  function vv() {
+    var v = window.visualViewport;
+    return v ? { w: Math.round(v.width), h: Math.round(v.height), top: Math.round(v.offsetTop), scale: v.scale }
+             : { w: innerWidth, h: innerHeight, top: 0, scale: 1, noVisualViewport: true };
+  }
+  function geom() {
+    var R = shadow(); if (!R) return null;
+    var dock = R.querySelector('.sp-dock');
+    var inp = R.querySelector('form.sp-dock-bar input');
+    if (!dock || !inp) return null;
+    var rd = dock.getBoundingClientRect(), ri = inp.getBoundingClientRect();
+    var hit = document.elementFromPoint(Math.round(ri.left + ri.width / 2), Math.round(ri.top + ri.height / 2));
+    var v = vv();
+    return {
+      viewport: v, innerH: innerHeight,
+      dock: { top: Math.round(rd.top), bottom: Math.round(rd.bottom), left: Math.round(rd.left), right: Math.round(rd.right) },
+      input: { top: Math.round(ri.top), bottom: Math.round(ri.bottom), h: Math.round(ri.height) },
+      inputInsideViewport: ri.bottom <= v.h + 1 && ri.top >= 0,
+      hitAtInput: hit ? (hit.id || hit.tagName + '.' + String(hit.className || '').slice(0, 20)) : null,
+      hitIsWidget: !!hit && (hit.id === 'sitepilot-root'),
+      offscreenRight: ri.right > innerWidth + 2
+    };
+  }
+
+  window.addEventListener('error', function (e) { out.jsErrors = (out.jsErrors || []).concat([String(e.message)]); });
+
+  (async function run() {
+    out.device = {
+      dpr: window.devicePixelRatio, screen: screen.width + 'x' + screen.height,
+      safeAreaBottom: getComputedStyle(document.documentElement).getPropertyValue('--x') || null,
+      touchPoints: navigator.maxTouchPoints, lang: navigator.language
+    };
+
+    // 1. смонтировался ли виджет
+    var mounted = false;
+    for (var i = 0; i < 25 && !mounted; i++) { await wait(600); mounted = !!(shadow() && shadow().querySelector('form.sp-dock-bar input')); }
+    log('1. Виджет загрузился', mounted, { waitedSec: mounted ? 'до 15' : 15 });
+    if (!mounted) return finish();
+
+    // 2. геометрия сразу после загрузки
+    var g1 = geom();
+    log('2. Поле ввода в видимой части экрана', !!g1 && g1.inputInsideViewport && g1.hitIsWidget, g1);
+
+    // 3. прокрутка вниз — на телефоне адресная строка сжимается, окно меняет высоту
+    window.scrollTo(0, Math.round(document.body.scrollHeight * 0.6));
+    await wait(2500);
+    var g2 = geom();
+    log('3. После прокрутки вниз поле ввода доступно', !!g2 && g2.inputInsideViewport && g2.hitIsWidget, g2);
+
+    // 4. прокрутка вверх — адресная строка возвращается
+    window.scrollTo(0, 0);
+    await wait(2500);
+    var g3 = geom();
+    log('4. После прокрутки вверх поле ввода доступно', !!g3 && g3.inputInsideViewport && g3.hitIsWidget, g3);
+
+    // 5. диалог: отправляем вопрос и ждём ответ
+    var R = shadow();
+    var before = R.textContent.length;
+    try {
+      var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      var inp = R.querySelector('form.sp-dock-bar input');
+      inp.focus();
+      setter.call(inp, 'What does the design retainer include?');
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      var btns = Array.prototype.slice.call(R.querySelectorAll('form.sp-dock-bar button'));
+      var send = btns.filter(function (b) { return (b.getAttribute('aria-label') || '') === 'Send message'; })[0];
+      send.click();
+    } catch (e) { log('5. Отправка вопроса', false, { error: String(e).slice(0, 120) }); }
+
+    var grew = 0;
+    for (var j = 0; j < 12; j++) { await wait(2500); grew = R.textContent.length - before; if (grew > 400) break; }
+    var tail = R.textContent.slice(-220);
+    var failed = /went wrong|couldn't answer|still being set up/i.test(tail);
+    log('5. Ответ пришёл', grew > 200 && !failed, { grewChars: grew, tail: tail.slice(-160) });
+
+    // 6. после ответа панель большая — не уехало ли поле ввода
+    var g4 = geom();
+    log('6. Поле ввода на месте после ответа', !!g4 && g4.inputInsideViewport && g4.hitIsWidget, g4);
+
+    // 7. хранение (в Safari его может подчищать ITP)
+    var st = {};
+    try {
+      localStorage.setItem('hintli-qa-probe', String(Date.now()));
+      st.canWrite = !!localStorage.getItem('hintli-qa-probe');
+      st.vid = !!localStorage.getItem('sitepilot:vid');
+      st.threadSaved = !!localStorage.getItem('sitepilot:thread:glow-2');
+    } catch (e) { st.error = String(e).slice(0, 80); }
+    log('7. Память посетителя пишется', !!st.canWrite && !!st.vid, st);
+
+    finish();
+  })();
+
+  function finish() {
+    out.finishedAt = new Date().toISOString();
+    out.passed = out.steps.filter(function (s) { return s.ok; }).length;
+    out.total = out.steps.length;
+    document.getElementById('done').style.display = 'block';
+    document.getElementById('lead').textContent = 'Проверка закончена.';
+    try {
+      if (window.opener && TARGET) window.opener.postMessage({ kind: 'hintli-ios-selftest', payload: out }, TARGET);
+    } catch (e) {}
+    try { localStorage.setItem('hintli-ios-selftest', JSON.stringify(out).slice(0, 20000)); } catch (e) {}
+  }
+})();
+</script>
+</body>
+</html>
