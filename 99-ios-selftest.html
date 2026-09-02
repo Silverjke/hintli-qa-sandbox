@@ -17,6 +17,11 @@
   .price { margin:28px 0; padding:16px; border:1px solid #eee; border-radius:12px; }
   .filler { color:#555; }
   #done { display:none; margin:24px 0; padding:16px; border-radius:12px; background:#0d9488; color:#fff; font-weight:700; }
+  #ask { display:none; margin:20px 0; padding:18px; border-radius:12px; background:#f59e0b; color:#111; font-weight:700; font-size:18px; }
+  #ask small { display:block; font-weight:400; font-size:14px; margin-top:6px; }
+  #copy { display:none; margin:12px 0 24px; padding:14px 18px; width:100%; border:0; border-radius:12px;
+    background:#111; color:#fff; font:inherit; font-weight:600; }
+  #raw { display:none; width:100%; height:120px; margin-bottom:20px; font-size:12px; }
 </style>
 </head>
 <body>
@@ -25,7 +30,10 @@
   <h1>Идёт проверка виджета</h1>
   <p id="lead">Ничего нажимать не нужно. Держи страницу открытой примерно минуту — она сама всё проверит и отправит результат.</p>
   <div id="steps"></div>
-  <div id="done">Готово. Результат отправлен, можно закрывать вкладку.</div>
+  <div id="ask">👆 Поводи пальцем по экрану — вверх и вниз, 6 секунд<small>Это нужно, чтобы Safari спрятал и вернул адресную строку — программно он так не делает.</small></div>
+  <div id="done">Готово. Нажми кнопку ниже и пришли результат в чат.</div>
+  <button id="copy">Скопировать результат</button>
+  <textarea id="raw" readonly></textarea>
 
   <div class="price"><strong>Pricing</strong><p>Projects start at $12,000/mo.</p></div>
   <p class="filler" id="filler"></p>
@@ -108,6 +116,28 @@
     var g3 = geom();
     log('4. После прокрутки вверх поле ввода доступно', !!g3 && g3.inputInsideViewport && g3.hitIsWidget, g3);
 
+    // 4b. настоящая прокрутка пальцем: только она прячет адресную строку в iOS
+    var ask = document.getElementById('ask');
+    ask.style.display = 'block';
+    ask.scrollIntoView({ block: 'center' });
+    var seen = [];
+    var startH = vv().h;
+    var t0 = Date.now();
+    while (Date.now() - t0 < 7000) {
+      await wait(250);
+      var g = geom();
+      if (g) seen.push({ h: g.viewport.h, inputBottom: g.input.bottom, ok: g.inputInsideViewport && g.hitIsWidget });
+    }
+    ask.style.display = 'none';
+    var heights = seen.map(function (x) { return x.h; });
+    var minH = Math.min.apply(null, heights), maxH = Math.max.apply(null, heights);
+    var badMoments = seen.filter(function (x) { return !x.ok; }).length;
+    log('4b. Во время прокрутки пальцем поле ввода не пряталось', badMoments === 0 && seen.length > 0, {
+      startH: startH, minH: minH, maxH: maxH,
+      chromeMoved: maxH - minH > 20,
+      samples: seen.length, badMoments: badMoments
+    });
+
     // 5. диалог: отправляем вопрос и ждём ответ
     var R = shadow();
     var before = R.textContent.length;
@@ -155,6 +185,22 @@
       if (window.opener && TARGET) window.opener.postMessage({ kind: 'hintli-ios-selftest', payload: out }, TARGET);
     } catch (e) {}
     try { localStorage.setItem('hintli-ios-selftest', JSON.stringify(out).slice(0, 20000)); } catch (e) {}
+
+    var raw = document.getElementById('raw');
+    var copy = document.getElementById('copy');
+    raw.value = JSON.stringify({ ua: out.ua, device: out.device, passed: out.passed, total: out.total,
+      jsErrors: out.jsErrors || [], steps: out.steps }, null, 1);
+    copy.style.display = 'block';
+    copy.addEventListener('click', function () {
+      raw.style.display = 'block';
+      raw.focus(); raw.setSelectionRange(0, raw.value.length);
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(raw.value).then(function () { copy.textContent = 'Скопировано — вставь в чат'; },
+            function () { copy.textContent = 'Выдели текст ниже и скопируй вручную'; });
+        } else { document.execCommand('copy'); copy.textContent = 'Скопировано — вставь в чат'; }
+      } catch (e) { copy.textContent = 'Выдели текст ниже и скопируй вручную'; }
+    });
   }
 })();
 </script>
